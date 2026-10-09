@@ -67,9 +67,9 @@ app.whenReady().then(() => {
     return serveMediaFile(request, filePath);
   });
 
-  ipcMain.handle("dialog:open-video", async () => {
+  async function chooseVideo(title = "Choose a video") {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Choose a video",
+      title,
       properties: ["openFile"],
       filters: [
         { name: "Video", extensions: ["mp4", "mov", "mkv", "webm", "m4v", "avi"] },
@@ -78,6 +78,16 @@ app.whenReady().then(() => {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     return probeMedia(result.filePaths[0]);
+  }
+
+  ipcMain.handle("dialog:open-video", () => chooseVideo());
+  ipcMain.handle("media:exists", async (_event, filePath) => {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   ipcMain.handle("media:create-preview", async (_event, filePath) => {
@@ -93,6 +103,10 @@ app.whenReady().then(() => {
   ipcMain.handle("projects:open", (_event, id) => library.open(id));
   ipcMain.handle("projects:import", (_event, project, filePath, modifiedAt) => library.importFile(project, filePath, modifiedAt));
   ipcMain.handle("projects:remove", (_event, id) => library.remove(id));
+  ipcMain.handle("projects:relink", async (_event, id) => {
+    const video = await chooseVideo("Locate the project's video");
+    return video ? library.relink(id, video) : null;
+  });
 
   ipcMain.handle("state:load", (_event, legacyState) => stateStore.load(legacyState));
   ipcMain.handle("state:save", (_event, state) => stateStore.save(state));

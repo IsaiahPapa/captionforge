@@ -9,6 +9,7 @@ interface HomeProps {
   onOpenFile(): void;
   onOpenRecent(id: string): void;
   onRemove(id: string): void;
+  onRelink(id: string): void;
   children?: ReactNode;
 }
 
@@ -28,16 +29,17 @@ function formatEdited(timestamp: number) {
   return "Edited just now";
 }
 
-function RecentProject({ project, busy, onOpen, onRemove }: {
+function RecentProject({ project, busy, onOpen, onRemove, onRelink }: {
   project: ProjectSummary;
   busy: boolean;
   onOpen(): void;
   onRemove(): void;
+  onRelink(): void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const portrait = project.height > project.width;
   return (
-    <li className="recent-item">
+    <li className={`recent-item ${project.videoMissing ? "missing" : ""}`}>
       <button type="button" className="recent-card" disabled={busy} onClick={onOpen}>
         <span className={`recent-thumb ${portrait ? "portrait" : "landscape"}`}>
           {project.thumbnail
@@ -51,9 +53,14 @@ function RecentProject({ project, busy, onOpen, onRemove }: {
             {" · "}{formatDuration(project.duration)}
             {" · "}{project.width}×{project.height}
           </span>
-          <small>{formatEdited(project.updatedAt)}</small>
+          {project.videoMissing
+            ? <small className="recent-missing" title={project.videoPath}>Video missing</small>
+            : <small>{formatEdited(project.updatedAt)}</small>}
         </span>
       </button>
+      {project.videoMissing && !confirming && (
+        <button type="button" className="recent-relink" disabled={busy} onClick={onRelink}>Locate video…</button>
+      )}
       {confirming ? (
         <span className="recent-confirm">
           <span>{project.filePath ? "Remove from recents?" : "Delete this unsaved project?"}</span>
@@ -67,7 +74,7 @@ function RecentProject({ project, busy, onOpen, onRemove }: {
   );
 }
 
-export default function Home({ recents, busy, onNewProject, onOpenFile, onOpenRecent, onRemove, children }: HomeProps) {
+export default function Home({ recents, busy, onNewProject, onOpenFile, onOpenRecent, onRemove, onRelink, children }: HomeProps) {
   const intro = (
     <>
       <div className="eyebrow"><span className="status-dot" /> Local-first video captions</div>
@@ -123,6 +130,7 @@ export default function Home({ recents, busy, onNewProject, onOpenFile, onOpenRe
               busy={busy}
               onOpen={() => onOpenRecent(project.id)}
               onRemove={() => onRemove(project.id)}
+              onRelink={() => onRelink(project.id)}
             />
           ))}
         </ul>

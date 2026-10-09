@@ -74,7 +74,8 @@ function createProjectLibrary(userDataDirectory) {
       width: project.video.width,
       height: project.video.height,
       cueCount: Array.isArray(project.cues) ? project.cues.length : 0,
-      thumbnail: await exists(thumbnail) ? thumbnail : null
+      thumbnail: await exists(thumbnail) ? thumbnail : null,
+      videoMissing: !await exists(project.video.path)
     };
   }
 
@@ -118,7 +119,22 @@ function createProjectLibrary(userDataDirectory) {
 
   async function open(id) {
     const entry = await readEntry(id);
-    return { id: entry.id, filePath: entry.filePath ?? null, project: entry.project };
+    return {
+      id: entry.id,
+      filePath: entry.filePath ?? null,
+      project: entry.project,
+      videoMissing: !await exists(entry.project?.video?.path ?? "")
+    };
+  }
+
+  // Points a project at its video's new location. Caption timing is kept.
+  async function relink(id, video) {
+    const entry = await readEntry(id);
+    const previousDuration = entry.project.video.duration;
+    entry.project = { ...entry.project, video: { ...entry.project.video, ...video } };
+    await writeEntry({ ...entry, updatedAt: Date.now() });
+    await createThumbnail(id, entry.project.video);
+    return { summary: await summarize(entry), previousDuration };
   }
 
   // Opening a project file that is already in the library reuses that entry,
@@ -139,7 +155,7 @@ function createProjectLibrary(userDataDirectory) {
     await fs.rm(thumbnailPath(id), { force: true });
   }
 
-  return { directory, list, create, save, open, importFile, remove, createThumbnail };
+  return { directory, list, create, save, open, importFile, relink, remove, createThumbnail };
 }
 
 module.exports = { createProjectLibrary };

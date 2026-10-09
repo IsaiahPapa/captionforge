@@ -71,3 +71,21 @@ test("rejects ids that could escape the library directory", async (t) => {
   await assert.rejects(library.open("../state"), /Invalid project id/);
   await assert.rejects(library.remove("../../etc/passwd"), /Invalid project id/);
 });
+
+test("flags projects whose video is gone and relinks them", async (t) => {
+  const library = withLibrary(t);
+  const id = await library.create(project("moved.mp4", 3));
+  assert.equal((await library.list())[0].videoMissing, true);
+  assert.equal((await library.open(id)).videoMissing, true);
+
+  const newLocation = path.join(library.directory, "moved.mp4");
+  fs.writeFileSync(newLocation, "");
+  const { summary, previousDuration } = await library.relink(id, { path: newLocation, name: "moved.mp4", duration: 31 });
+  assert.equal(previousDuration, 30);
+  assert.equal(summary.videoMissing, false);
+  const reopened = await library.open(id);
+  assert.equal(reopened.videoMissing, false);
+  assert.equal(reopened.project.video.path, newLocation);
+  assert.equal(reopened.project.cues.length, 3, "captions survive relinking");
+  assert.equal(reopened.project.video.width, 1080, "fields not in the new probe are kept");
+});

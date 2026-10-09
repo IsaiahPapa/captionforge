@@ -8,9 +8,11 @@ declare global {
       listProjects(): Promise<ProjectSummary[]>;
       createProject(project: CaptionProject): Promise<string>;
       saveLibraryProject(id: string, project: CaptionProject): Promise<void>;
-      openLibraryProject(id: string): Promise<{ id: string; filePath: string | null; project: unknown }>;
+      openLibraryProject(id: string): Promise<{ id: string; filePath: string | null; project: unknown; videoMissing: boolean }>;
       importProject(project: CaptionProject, filePath: string, modifiedAt: number): Promise<string>;
       removeProject(id: string): Promise<void>;
+      relinkProject(id: string): Promise<{ summary: ProjectSummary; previousDuration: number } | null>;
+      mediaExists(filePath: string): Promise<boolean>;
       saveProject(project: CaptionProject): Promise<string | null>;
       createPreview?(filePath: string): Promise<string>;
       listFonts?(): Promise<string[]>;

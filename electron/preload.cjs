@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("captionForge", {
   openLibraryProject: (id) => ipcRenderer.invoke("projects:open", id),
   importProject: (project, filePath, modifiedAt) => ipcRenderer.invoke("projects:import", project, filePath, modifiedAt),
   removeProject: (id) => ipcRenderer.invoke("projects:remove", id),
+  relinkProject: (id) => ipcRenderer.invoke("projects:relink", id),
+  mediaExists: (filePath) => ipcRenderer.invoke("media:exists", filePath),
   loadState: (legacyState) => ipcRenderer.invoke("state:load", legacyState),
   saveState: (state) => ipcRenderer.invoke("state:save", state),
   transcribe: (options) => ipcRenderer.invoke("transcription:start", options),

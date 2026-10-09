@@ -52,6 +52,10 @@ function errorMessage(reason: unknown) {
   return message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "");
 }
 
+function missingVideoMessage(name: string, videoPath: string) {
+  return `“${name}” can't be found at ${videoPath}. It may have been moved, renamed, or deleted. Use “Locate video” on the project to point to it.`;
+}
+
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
@@ -475,10 +479,32 @@ function App() {
     });
   }
 
+  // Opens a library project, or stays on the home screen if its video is gone.
+  async function openLibraryEntry(id: string) {
+    const opened = await window.captionForge.openLibraryProject(id);
+    const parsed = parseProject(opened.project, STYLE_PRESETS[0]);
+    if (opened.videoMissing) {
+      refreshRecents();
+      throw new Error(missingVideoMessage(parsed.video.name, parsed.video.path));
+    }
+    enterProject(opened.id, parsed);
+  }
+
   function openRecentProject(id: string) {
+    return homeAction(() => openLibraryEntry(id));
+  }
+
+  function relinkRecentProject(id: string) {
     return homeAction(async () => {
-      const opened = await window.captionForge.openLibraryProject(id);
-      enterProject(opened.id, parseProject(opened.project, STYLE_PRESETS[0]));
+      const relinked = await window.captionForge.relinkProject(id);
+      if (!relinked) return;
+      const { summary, previousDuration } = relinked;
+      setRecents((current) => current?.map((item) => item.id === id ? summary : item) ?? null);
+      if (Math.abs(summary.duration - previousDuration) > 1) {
+        setToast(`Linked “${summary.name}”. It's a different length than before, so check the caption timing.`);
+      } else {
+        setToast(`Linked “${summary.name}”`);
+      }
     });
   }
 
@@ -488,8 +514,7 @@ function App() {
       if (!opened) return;
       const parsed = parseProject(opened.data, STYLE_PRESETS[0]);
       const id = await window.captionForge.importProject(parsed, opened.filePath, opened.modifiedAt);
-      const entry = await window.captionForge.openLibraryProject(id);
-      enterProject(id, parseProject(entry.project, STYLE_PRESETS[0]));
+      await openLibraryEntry(id);
     });
   }
 
@@ -500,7 +525,7 @@ function App() {
     });
   }
 
-  async function goHome() {
+  async function goHome(message?: string) {
     videoRef.current?.pause();
     if (project && projectId && persistedProjectRef.current !== project) await persistProject(projectId, project);
     setProject(null);
@@ -508,6 +533,15 @@ function App() {
     persistedProjectRef.current = null;
     setExportOpen(false);
     refreshRecents();
+    if (message) setError(message);
+  }
+
+  // The source video can disappear while a project is open (deleted, moved,
+  // drive unplugged). Returns true after sending the user home if so.
+  async function leaveIfVideoMissing() {
+    if (!project || await window.captionForge.mediaExists(project.video.path)) return false;
+    await goHome(missingVideoMessage(project.video.name, project.video.path));
+    return true;
   }
 
   function refreshModelStatus() {
@@ -536,6 +570,7 @@ function App() {
       setSelectedCueIds(new Set());
       setToast(`${result.cues.length} caption groups created`);
     } catch (reason) {
+      if (await leaveIfVideoMissing()) return;
       setError(errorMessage(reason));
     } finally {
       setJob(null);
@@ -554,6 +589,7 @@ function App() {
       const output = await window.captionForge.exportVideo(project, exportSettings);
       if (output) setToast(`Exported ${output.split("/").at(-1)}`);
     } catch (reason) {
+      if (await leaveIfVideoMissing()) return;
       setError(errorMessage(reason));
     } finally {
       setJob(null);
@@ -679,6 +715,7 @@ function App() {
 
   async function recoverPreview(targetTime = currentTime, failedPath = previewPathRef.current, mediaError?: string) {
     if (!project || failedPath !== previewPathRef.current) return;
+    if (await leaveIfVideoMissing()) return;
     if (previewStatusRef.current !== "ready" || failedPath !== project.video.path) {
       if (previewStatusRef.current === "preparing") return;
       previewStatusRef.current = "failed";
@@ -720,6 +757,7 @@ function App() {
         onOpenFile={openProjectFile}
         onOpenRecent={openRecentProject}
         onRemove={removeRecentProject}
+        onRelink={relinkRecentProject}
       >
         {errorToast}
       </Home>
@@ -747,7 +785,7 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-start">
-          <button className="home-button" disabled={Boolean(job)} onClick={goHome} title="Back to all projects"><BackIcon /> Projects</button>
+          <button className="home-button" disabled={Boolean(job)} onClick={() => goHome()} title="Back to all projects"><BackIcon /> Projects</button>
         </div>
         <div className="project-title">
           <strong>{project.video.name}</strong>

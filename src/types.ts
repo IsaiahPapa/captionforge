@@ -90,6 +90,7 @@ export interface ProjectSummary {
   height: number;
   cueCount: number;
   thumbnail: string | null;
+  videoMissing: boolean;
 }
 
 export interface WhisperModelStatus {
