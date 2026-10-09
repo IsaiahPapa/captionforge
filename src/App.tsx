@@ -652,6 +652,8 @@ function App() {
     }
   }
 
+  const errorToast = error && <div className="error-toast"><strong>Something went wrong</strong><span>{error}</span><button onClick={() => setError(null)}>×</button></div>;
+
   if (!project) {
     return (
       <main className="welcome-shell">
@@ -677,6 +679,7 @@ function App() {
             </div>
           </div>
         </div>
+        {errorToast}
       </main>
     );
   }
@@ -1039,7 +1042,7 @@ function App() {
       {job && <div className="job-overlay">
         <div className={`job-card job-${job.stage}`} aria-live="polite"><SparkIcon size={24} /><strong>{job.message}</strong><small>{Math.round(job.value * 100)}% · Working locally · {formatElapsed(jobElapsedSeconds)}</small><div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(job.value * 100)}><span style={{ width: `${job.value * 100}%` }} /></div><button onClick={() => window.captionForge.cancelJob()}>Cancel</button></div>
       </div>}
-      {error && <div className="error-toast"><strong>Something went wrong</strong><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
+      {errorToast}
       {toast && <div className="success-toast">{toast}</div>}
     </main>
   );
