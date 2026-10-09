@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { retimeWords } from "./caption-edit";
 import { DEFAULT_EXPORT_SETTINGS } from "./export-settings";
 import { STYLE_PRESETS } from "./presets";
 import type { AppState, CaptionCue, CaptionProject, CaptionStyle, ExportSettings, JobProgress, WhisperModelStatus } from "./types";
@@ -224,22 +225,6 @@ function FontPicker({
       )}
     </div>
   );
-}
-
-function retimeWords(cue: CaptionCue, text: string): CaptionCue {
-  const tokens = text.trim().split(/\s+/).filter(Boolean);
-  const duration = Math.max(0.01, cue.end - cue.start);
-  return {
-    ...cue,
-    text,
-    words: tokens.map((token, index) => ({
-      id: cue.words[index]?.id ?? crypto.randomUUID(),
-      text: token,
-      start: cue.start + duration * (index / tokens.length),
-      end: cue.start + duration * ((index + 1) / tokens.length),
-      confidence: cue.words[index]?.confidence
-    }))
-  };
 }
 
 function strictBatchCues(cues: CaptionCue[], batchSize: number): CaptionCue[] {
