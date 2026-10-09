@@ -79,6 +79,19 @@ export interface JobProgress {
   message: string;
 }
 
+export interface ProjectSummary {
+  id: string;
+  filePath: string | null;
+  updatedAt: number;
+  name: string;
+  videoPath: string;
+  duration: number;
+  width: number;
+  height: number;
+  cueCount: number;
+  thumbnail: string | null;
+}
+
 export interface WhisperModelStatus {
   id: string;
   size: number;

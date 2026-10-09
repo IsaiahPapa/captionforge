@@ -5,6 +5,7 @@ const { Readable } = require("node:stream");
 
 const MEDIA_TYPES = {
   ".avi": "video/x-msvideo",
+  ".jpg": "image/jpeg",
   ".m4v": "video/x-m4v",
   ".mkv": "video/x-matroska",
   ".mov": "video/quicktime",

@@ -7,6 +7,7 @@ const { transcribeVideo } = require("./services/transcription.cjs");
 const { listModels } = require("./services/whisper-models.cjs");
 const { listSystemFonts } = require("./services/fonts.cjs");
 const { createStateStore } = require("./services/state.cjs");
+const { createProjectLibrary } = require("./services/projects.cjs");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -57,6 +58,7 @@ function createWindow() {
 app.whenReady().then(() => {
   const stateStore = createStateStore(app.getPath("userData"));
   const modelsDirectory = path.join(app.getPath("userData"), "models");
+  const library = createProjectLibrary(app.getPath("userData"));
 
   protocol.handle("captionforge", (request) => {
     const requestUrl = new URL(request.url);
@@ -85,6 +87,13 @@ app.whenReady().then(() => {
   ipcMain.handle("fonts:list", () => listSystemFonts());
   ipcMain.handle("models:list", () => listModels(modelsDirectory));
 
+  ipcMain.handle("projects:list", () => library.list());
+  ipcMain.handle("projects:create", (_event, project) => library.create(project));
+  ipcMain.handle("projects:save", (_event, id, project) => library.save(id, project));
+  ipcMain.handle("projects:open", (_event, id) => library.open(id));
+  ipcMain.handle("projects:import", (_event, project, filePath, modifiedAt) => library.importFile(project, filePath, modifiedAt));
+  ipcMain.handle("projects:remove", (_event, id) => library.remove(id));
+
   ipcMain.handle("state:load", (_event, legacyState) => stateStore.load(legacyState));
   ipcMain.handle("state:save", (_event, state) => stateStore.save(state));
 
@@ -107,9 +116,10 @@ app.whenReady().then(() => {
       filters: [{ name: "CaptionForge project", extensions: ["json"] }]
     });
     if (result.canceled || !result.filePaths[0]) return null;
-    const contents = await fs.readFile(result.filePaths[0], "utf8");
+    const filePath = result.filePaths[0];
+    const [contents, stats] = await Promise.all([fs.readFile(filePath, "utf8"), fs.stat(filePath)]);
     try {
-      return JSON.parse(contents);
+      return { data: JSON.parse(contents), filePath, modifiedAt: stats.mtimeMs };
     } catch {
       throw new Error("This isn't a CaptionForge project (the file isn't valid JSON).");
     }

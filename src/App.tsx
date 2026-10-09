@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { retimeWords } from "./caption-edit";
+import { BackIcon, ExportIcon, PauseIcon, PlayIcon, SparkIcon } from "./icons";
+import Home from "./Home";
 import { parseProject } from "./project";
 import { DEFAULT_EXPORT_SETTINGS } from "./export-settings";
 import { STYLE_PRESETS } from "./presets";
-import type { AppState, CaptionCue, CaptionProject, CaptionStyle, ExportSettings, JobProgress, WhisperModelStatus } from "./types";
+import type { AppState, CaptionCue, CaptionProject, CaptionStyle, ExportSettings, JobProgress, ProjectSummary, WhisperModelStatus } from "./types";
 
 const WHISPER_MODELS = [
   { id: "tiny", label: "Tiny · fastest" },
@@ -12,18 +14,6 @@ const WHISPER_MODELS = [
   { id: "medium", label: "Medium · accurate" },
   { id: "turbo", label: "Turbo · best balance" }
 ];
-
-const Icon = ({ children, size = 18 }: { children: React.ReactNode; size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    {children}
-  </svg>
-);
-
-const PlayIcon = () => <Icon><polygon points="7 4 20 12 7 20 7 4" /></Icon>;
-const PauseIcon = () => <Icon><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></Icon>;
-const FolderIcon = () => <Icon><path d="M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path d="M3 9h18" /></Icon>;
-const SparkIcon = ({ size }: { size?: number }) => <Icon size={size}><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5Z" /><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7Z" /></Icon>;
-const ExportIcon = () => <Icon><path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M5 13v7h14v-7" /></Icon>;
 
 const DEFAULT_WORD_TIMING_OFFSET_MS = 120;
 const USER_STYLE_PRESETS_KEY = "captionforge:style-presets";
@@ -256,6 +246,10 @@ function strictBatchCues(cues: CaptionCue[], batchSize: number): CaptionCue[] {
 
 function App() {
   const [project, setProject] = useState<CaptionProject | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [recents, setRecents] = useState<ProjectSummary[] | null>(null);
+  const [opening, setOpening] = useState(false);
+  const persistedProjectRef = useRef<CaptionProject | null>(null);
   const [stateReady, setStateReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -293,13 +287,19 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     window.captionForge.loadState(loadLegacyState())
-      .then((state) => {
+      .then(async (state) => {
         if (cancelled) return;
-        try {
-          setProject(state.project ? parseProject(state.project, STYLE_PRESETS[0]) : null);
-        } catch (reason) {
-          setError(`Your last draft couldn't be restored: ${errorMessage(reason)}`);
+        // Older versions kept one draft in the app state; move it into the
+        // project library so it shows up under recent projects.
+        if (state.project) {
+          try {
+            await window.captionForge.createProject(parseProject(state.project, STYLE_PRESETS[0]));
+          } catch (reason) {
+            setError(`Your last draft couldn't be restored: ${errorMessage(reason)}`);
+          }
         }
+        if (cancelled) return;
+        refreshRecents();
         setUserStylePresets(state.userStylePresets);
         setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...state.exportSettings });
         setStateReady(true);
@@ -316,7 +316,7 @@ function App() {
     const timeout = window.setTimeout(() => {
       window.captionForge.saveState({
         version: 1,
-        project,
+        project: null,
         userStylePresets,
         exportSettings
       }).catch((reason) => {
@@ -324,7 +324,16 @@ function App() {
       });
     }, 150);
     return () => window.clearTimeout(timeout);
-  }, [stateReady, project, userStylePresets, exportSettings]);
+  }, [stateReady, userStylePresets, exportSettings]);
+  // Autosave the open project into the library.
+  useEffect(() => {
+    if (!project || !projectId || persistedProjectRef.current === project) return;
+    const timeout = window.setTimeout(() => { persistProject(projectId, project); }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [project, projectId]);
+  useEffect(() => {
+    document.title = project ? `${project.video.name} — CaptionForge` : "CaptionForge";
+  }, [project?.video.name]);
   useEffect(() => {
     if (presetSaveOpen) presetNameInputRef.current?.focus();
   }, [presetSaveOpen]);
@@ -415,42 +424,90 @@ function App() {
     return previewTime >= word.start && previewTime < (words[index + 1]?.start ?? activeCue.end);
   })?.id ?? activeCue?.words[0]?.id;
 
-  async function importVideo() {
-    setError(null);
-    let video;
-    try {
-      video = await window.captionForge.openVideo();
-    } catch (reason) {
-      setError(errorMessage(reason));
-      return;
-    }
-    if (!video) return;
-    setProject({
-      version: 1,
-      video,
-      language: "auto",
-      cues: [],
-      style: { ...STYLE_PRESETS[0] }
+  function refreshRecents() {
+    window.captionForge.listProjects().then(setRecents).catch((reason) => {
+      setRecents([]);
+      setError(`Could not load recent projects: ${errorMessage(reason)}`);
     });
+  }
+
+  async function persistProject(id: string, next: CaptionProject) {
+    persistedProjectRef.current = next;
+    try {
+      await window.captionForge.saveLibraryProject(id, next);
+    } catch (reason) {
+      persistedProjectRef.current = null;
+      setError(`Could not save your changes: ${errorMessage(reason)}`);
+    }
+  }
+
+  function enterProject(id: string, next: CaptionProject) {
+    persistedProjectRef.current = next;
+    setProjectId(id);
+    setProject(next);
     setCurrentTime(0);
+    setPlaying(false);
     seekTargetRef.current = null;
     setSelectedCueIds(new Set());
+    lastSelectedCueIdRef.current = null;
     setActiveTab("captions");
   }
 
-  async function openProject() {
+  // Runs a home-screen action with the buttons disabled and errors shown.
+  async function homeAction(action: () => Promise<void>) {
     setError(null);
+    setOpening(true);
     try {
-      const opened = await window.captionForge.openProject();
-      if (opened) {
-        setProject(parseProject(opened, STYLE_PRESETS[0]));
-        setCurrentTime(0);
-        seekTargetRef.current = null;
-        setSelectedCueIds(new Set());
-      }
+      await action();
     } catch (reason) {
       setError(errorMessage(reason));
+    } finally {
+      setOpening(false);
     }
+  }
+
+  function newProjectFromVideo() {
+    return homeAction(async () => {
+      const video = await window.captionForge.openVideo();
+      if (!video) return;
+      const created: CaptionProject = { version: 1, video, language: "auto", cues: [], style: { ...STYLE_PRESETS[0] } };
+      enterProject(await window.captionForge.createProject(created), created);
+    });
+  }
+
+  function openRecentProject(id: string) {
+    return homeAction(async () => {
+      const opened = await window.captionForge.openLibraryProject(id);
+      enterProject(opened.id, parseProject(opened.project, STYLE_PRESETS[0]));
+    });
+  }
+
+  function openProjectFile() {
+    return homeAction(async () => {
+      const opened = await window.captionForge.openProject();
+      if (!opened) return;
+      const parsed = parseProject(opened.data, STYLE_PRESETS[0]);
+      const id = await window.captionForge.importProject(parsed, opened.filePath, opened.modifiedAt);
+      const entry = await window.captionForge.openLibraryProject(id);
+      enterProject(id, parseProject(entry.project, STYLE_PRESETS[0]));
+    });
+  }
+
+  function removeRecentProject(id: string) {
+    return homeAction(async () => {
+      await window.captionForge.removeProject(id);
+      setRecents((current) => current?.filter((item) => item.id !== id) ?? null);
+    });
+  }
+
+  async function goHome() {
+    videoRef.current?.pause();
+    if (project && projectId && persistedProjectRef.current !== project) await persistProject(projectId, project);
+    setProject(null);
+    setProjectId(null);
+    persistedProjectRef.current = null;
+    setExportOpen(false);
+    refreshRecents();
   }
 
   function refreshModelStatus() {
@@ -656,31 +713,16 @@ function App() {
 
   if (!project) {
     return (
-      <main className="welcome-shell">
-        <div className="brand brand-large"><span className="brand-mark">C</span><span>CaptionForge</span></div>
-        <section className="welcome-card">
-          <div className="eyebrow"><span className="status-dot" /> Local-first video captions</div>
-          <h1>Make every word<br /><span>land.</span></h1>
-          <p>Transcribe, style, and render scroll-stopping subtitles using your own machine. Your footage never leaves your computer.</p>
-          <button className="primary large" onClick={importVideo}><FolderIcon /> Choose a video</button>
-          <button className="text-button" onClick={openProject}>Open an existing project</button>
-          <div className="feature-row">
-            <span><SparkIcon /> Local Whisper</span>
-            <span>25× native export</span>
-            <span>100% offline</span>
-          </div>
-        </section>
-        <div className="welcome-art" aria-hidden>
-          <div className="portrait-frame">
-            <div className="fake-video">
-              <span className="grain" />
-              <div className="fake-person" />
-              <div className="fake-caption">MAKE EVERY <strong>WORD</strong> LAND.</div>
-            </div>
-          </div>
-        </div>
+      <Home
+        recents={recents}
+        busy={opening || !stateReady}
+        onNewProject={newProjectFromVideo}
+        onOpenFile={openProjectFile}
+        onOpenRecent={openRecentProject}
+        onRemove={removeRecentProject}
+      >
         {errorToast}
-      </main>
+      </Home>
     );
   }
 
@@ -704,13 +746,14 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">C</span><span>CaptionForge</span></div>
+        <div className="topbar-start">
+          <button className="home-button" disabled={Boolean(job)} onClick={goHome} title="Back to all projects"><BackIcon /> Projects</button>
+        </div>
         <div className="project-title">
           <strong>{project.video.name}</strong>
           <span>{project.video.width}×{project.video.height} · {formatTime(project.video.duration)}</span>
         </div>
         <div className="top-actions">
-          <button className="ghost" onClick={importVideo}>New video</button>
           <button className="ghost" onClick={() => window.captionForge.saveProject(project)}>Save project</button>
           <button className="primary" disabled={!project.cues.length || Boolean(job)} onClick={() => setExportOpen(true)}><ExportIcon /> Export video</button>
         </div>
