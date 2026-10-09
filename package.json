@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Fast, local-first subtitles for short-form video.",
+  "author": {
+    "name": "Isaiah Paparella",
+    "email": "clixpapa@gmail.com"
+  },
+  "license": "UNLICENSED",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -115,6 +120,7 @@
       "target": [
         "AppImage"
       ]
-    }
+    },
+    "copyright": "Copyright © 2026 Isaiah Paparella"
   }
 }
