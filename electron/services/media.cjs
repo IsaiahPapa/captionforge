@@ -68,10 +68,25 @@ function projectAtDimensions(project, dimensions) {
   };
 }
 
+// Phones usually store portrait video as landscape frames plus a rotation flag.
+// Browsers and FFmpeg both apply that flag, so report the displayed size.
+function displayDimensions(stream) {
+  const width = Number(stream.width);
+  const height = Number(stream.height);
+  const rotation = Number(
+    stream.side_data_list?.find((data) => data.rotation != null)?.rotation
+    ?? stream.tags?.rotate
+    ?? 0
+  );
+  return Math.abs(Math.round(rotation)) % 180 === 90
+    ? { width: height, height: width }
+    : { width, height };
+}
+
 async function probeMedia(filePath) {
   const { stdout } = await runProcess(ffprobePath, [
     "-v", "error",
-    "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate",
+    "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate:stream_tags=rotate:stream_side_data_list",
     "-of", "json",
     filePath
   ]);
@@ -82,8 +97,7 @@ async function probeMedia(filePath) {
   return {
     path: filePath,
     name: path.basename(filePath),
-    width: Number(videoStream.width),
-    height: Number(videoStream.height),
+    ...displayDimensions(videoStream),
     duration: Number(result.format.duration),
     fps: denominator ? numerator / denominator : 0,
     size: Number(result.format.size)
@@ -518,6 +532,7 @@ module.exports = {
   DEFAULT_EXPORT_SETTINGS,
   normalizeExportSettings,
   exportDimensions,
+  displayDimensions,
   probeMedia,
   buildAss,
   buildAssFilter,

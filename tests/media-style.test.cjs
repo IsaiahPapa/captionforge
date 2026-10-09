@@ -110,3 +110,17 @@ test("passes user-installed fonts to libass and escapes filter paths", () => {
     "ass=filename='/tmp/caption\\'s.ass':fontsdir='/Users/example/Library/Fonts'"
   );
 });
+
+test("reports displayed dimensions for rotated phone video", () => {
+  const { displayDimensions } = require("../electron/services/media.cjs");
+  const landscape = { width: 1920, height: 1080 };
+  assert.deepEqual(displayDimensions(landscape), { width: 1920, height: 1080 });
+  for (const rotation of [90, -90, 270, -270]) {
+    assert.deepEqual(
+      displayDimensions({ ...landscape, side_data_list: [{ side_data_type: "Display Matrix", rotation }] }),
+      { width: 1080, height: 1920 }
+    );
+  }
+  assert.deepEqual(displayDimensions({ ...landscape, side_data_list: [{ rotation: 180 }] }), landscape);
+  assert.deepEqual(displayDimensions({ ...landscape, tags: { rotate: "90" } }), { width: 1080, height: 1920 });
+});
