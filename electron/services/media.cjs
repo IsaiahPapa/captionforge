@@ -525,7 +525,7 @@ async function renderVideo(project, outputPath, context, rawSettings = {}) {
         });
         break;
       } catch (error) {
-        if (context.signal.aborted || encoder === "libx264") throw error;
+        if (context.signal.aborted || index === encoders.length - 1) throw error;
       }
     }
     context.onProgress({ stage: "complete", value: 1, message: "Export complete" });
