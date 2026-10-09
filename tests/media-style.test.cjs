@@ -44,7 +44,8 @@ test("pop styling never scales an individual word or changes its advance width",
   assert.doesNotMatch(ass, /\\fsc[xy]/);
   const dialogueLines = ass.split("\n").filter((line) => line.startsWith("Dialogue:"));
   assert.equal(dialogueLines.length, 3);
-  assert.ok(dialogueLines.every((line) => (line.match(/\\h/g) || []).length === 2));
+  // Plain spaces (not \h) so libass can wrap long captions like the preview does.
+  assert.ok(dialogueLines.every((line) => !line.includes("\\h")));
 });
 
 test("vertical offsets and typography are compiled into ASS output", () => {
@@ -123,4 +124,11 @@ test("reports displayed dimensions for rotated phone video", () => {
   }
   assert.deepEqual(displayDimensions({ ...landscape, side_data_list: [{ rotation: 180 }] }), landscape);
   assert.deepEqual(displayDimensions({ ...landscape, tags: { rotate: "90" } }), { width: 1080, height: 1920 });
+});
+
+test("long captions wrap inside the preview's side margins", () => {
+  const ass = buildAss(makeProject());
+  assert.match(ass, /^WrapStyle: 1$/m);
+  // 8% of 1080 on each side, matching the preview's left/right inset.
+  assert.match(ass, /Style: Default,[^\n]+,5,86,86,0,1$/m);
 });

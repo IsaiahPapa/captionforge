@@ -132,6 +132,11 @@ function alignment(style) {
   return 2;
 }
 
+// The preview lays captions out in the middle 84% of the frame and wraps
+// greedily (CSS flex-wrap); export mirrors both so long captions wrap the
+// same way instead of running off the edges.
+const CAPTION_SIDE_MARGIN = 0.08;
+
 function captionPosition(style, video) {
   const offset = Number(style.verticalOffsetPercent) || 0;
   const basePercent = style.position === "top"
@@ -169,7 +174,7 @@ function cueEvents(cue, style) {
           ? `{\\c${assColor(style.activeColor)}\\alpha&H44&\\t(0,80,\\alpha&H00&)}`
           : `{\\c${assColor(style.activeColor)}}`;
       return `${transition}${escapeAss(raw)}{\\r}`;
-    }).join("\\h");
+    }).join(" ");
     events.push({
       start: activeIndex === 0
         ? cue.start
@@ -194,16 +199,17 @@ function buildAss(project) {
   const italic = style.fontStyle === "italic" ? -1 : 0;
   const letterSpacing = Number(style.letterSpacing) || 0;
   const positionOverride = `{\\an${position.alignment}\\pos(${position.x},${position.y})}`;
+  const sideMargin = Math.round(video.width * CAPTION_SIDE_MARGIN);
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${video.width}
 PlayResY: ${video.height}
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${fontFamily},${style.fontSize},${assColor(style.primaryColor)},${assColor(style.activeColor)},${assColor(style.outlineColor)},&H90000000,${fontWeight},${italic},0,0,100,100,${letterSpacing},0,1,${style.outlineWidth},${style.shadow},${position.alignment},48,48,0,1
+Style: Default,${fontFamily},${style.fontSize},${assColor(style.primaryColor)},${assColor(style.activeColor)},${assColor(style.outlineColor)},&H90000000,${fontWeight},${italic},0,0,100,100,${letterSpacing},0,1,${style.outlineWidth},${style.shadow},${position.alignment},${sideMargin},${sideMargin},0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -310,7 +316,7 @@ function stateSvg(project, state) {
   const letterSpacing = Number(style.letterSpacing) || 0;
   const lineHeight = fontSize * 1.12;
   const wordsWithSpacing = state.words.map((word) => ({ ...word, letterSpacing }));
-  const lines = splitLines(wordsWithSpacing, fontSize, video.width * 0.86);
+  const lines = splitLines(wordsWithSpacing, fontSize, video.width * (1 - 2 * CAPTION_SIDE_MARGIN));
   const totalHeight = lines.length * lineHeight;
   const offsetY = -video.height * (Number(style.verticalOffsetPercent) || 0) / 100;
   const centerY = style.position === "top"
