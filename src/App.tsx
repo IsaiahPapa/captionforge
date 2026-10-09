@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { retimeWords } from "./caption-edit";
+import { parseProject } from "./project";
 import { DEFAULT_EXPORT_SETTINGS } from "./export-settings";
 import { STYLE_PRESETS } from "./presets";
 import type { AppState, CaptionCue, CaptionProject, CaptionStyle, ExportSettings, JobProgress, WhisperModelStatus } from "./types";
@@ -294,7 +295,11 @@ function App() {
     window.captionForge.loadState(loadLegacyState())
       .then((state) => {
         if (cancelled) return;
-        setProject(state.project);
+        try {
+          setProject(state.project ? parseProject(state.project, STYLE_PRESETS[0]) : null);
+        } catch (reason) {
+          setError(`Your last draft couldn't be restored: ${errorMessage(reason)}`);
+        }
         setUserStylePresets(state.userStylePresets);
         setExportSettings({ ...DEFAULT_EXPORT_SETTINGS, ...state.exportSettings });
         setStateReady(true);
@@ -438,7 +443,7 @@ function App() {
     try {
       const opened = await window.captionForge.openProject();
       if (opened) {
-        setProject(opened);
+        setProject(parseProject(opened, STYLE_PRESETS[0]));
         setCurrentTime(0);
         seekTargetRef.current = null;
         setSelectedCueIds(new Set());

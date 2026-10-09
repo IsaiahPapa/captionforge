@@ -107,7 +107,12 @@ app.whenReady().then(() => {
       filters: [{ name: "CaptionForge project", extensions: ["json"] }]
     });
     if (result.canceled || !result.filePaths[0]) return null;
-    return JSON.parse(await fs.readFile(result.filePaths[0], "utf8"));
+    const contents = await fs.readFile(result.filePaths[0], "utf8");
+    try {
+      return JSON.parse(contents);
+    } catch {
+      throw new Error("This isn't a CaptionForge project (the file isn't valid JSON).");
+    }
   });
 
   ipcMain.handle("transcription:start", async (_event, options) => {
