@@ -16,6 +16,20 @@ const FALLBACK_FONTS = [
 ];
 
 let macTypefacesPromise;
+let windowsFontsPromise;
+
+const WINDOWS_FONT_KEYS = [
+  "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts",
+  "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+];
+// Words that name a face within a family ("Arial Bold Italic"). Anything else
+// ("Arial Narrow") is a different family and must not match.
+const FACE_STYLE_WORDS = new Set([
+  "regular", "normal", "book", "roman", "italic", "oblique",
+  "thin", "hairline", "extralight", "ultralight", "light", "semilight", "medium",
+  "semibold", "demibold", "bold", "extrabold", "ultrabold", "black", "heavy",
+  "extra", "ultra", "semi", "demi"
+]);
 
 function styleWeight(style) {
   const normalized = String(style || "").toLowerCase().replace(/[\s_-]+/g, "");
@@ -60,16 +74,75 @@ async function loadMacTypefaces() {
   return macTypefacesPromise;
 }
 
+// Parses `reg query` output for the Fonts key into { name, file } entries.
+// Names are full face names ("Arial Bold Italic"); TrueType collections list
+// several joined with " & ".
+function parseWindowsFontRegistry(stdout, systemFontsDirectory) {
+  const fonts = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^\s+(.+?)\s{2,}REG_(?:EXPAND_)?SZ\s{2,}(.+?)\s*$/.exec(line);
+    if (!match) continue;
+    const file = path.win32.isAbsolute(match[2]) ? match[2] : path.win32.join(systemFontsDirectory, match[2]);
+    if (![".ttf", ".otf", ".ttc"].includes(path.win32.extname(file).toLowerCase())) continue;
+    const names = match[1].replace(/\s*\((?:TrueType|OpenType|All res)\)$/i, "").split(" & ");
+    for (const name of names) fonts.push({ name: name.trim(), file });
+  }
+  return fonts;
+}
+
+function selectWindowsFontFace(fonts, family, weight, italic) {
+  const requestedFamily = String(family || "").trim().toLowerCase();
+  const typefaces = fonts.flatMap((font) => {
+    const name = font.name.toLowerCase();
+    if (name !== requestedFamily && !name.startsWith(`${requestedFamily} `)) return [];
+    const style = font.name.slice(requestedFamily.length).trim();
+    const words = style.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.every((word) => FACE_STYLE_WORDS.has(word))) return [];
+    return [{ family: requestedFamily, style, fullname: font.name, file: font.file }];
+  });
+  return selectFontFace(typefaces, requestedFamily, weight, italic);
+}
+
+async function loadWindowsFonts() {
+  if (!windowsFontsPromise) {
+    const systemFontsDirectory = path.win32.join(process.env.WINDIR || "C:\\Windows", "Fonts");
+    windowsFontsPromise = Promise.all(WINDOWS_FONT_KEYS.map((key) =>
+      runProcess("reg.exe", ["query", key])
+        .then(({ stdout }) => parseWindowsFontRegistry(stdout, systemFontsDirectory))
+        .catch(() => [])
+    )).then((lists) => lists.flat());
+  }
+  return windowsFontsPromise;
+}
+
+// Returns { name, file } for the installed face closest to the request, where
+// `name` is the face's full name for libass and `file` (Windows only) is the
+// font file to hand libass directly, since its system font lookup there
+// depends on how FFmpeg was built.
 async function resolveFontFace(family, weight, fontStyle) {
-  if (process.platform !== "darwin") return null;
+  const italic = fontStyle === "italic";
   try {
-    const face = selectFontFace(
-      await loadMacTypefaces(),
-      family,
-      weight,
-      fontStyle === "italic"
-    );
-    return face ? String(face.fullname || face.family || family).trim() : null;
+    if (process.platform === "darwin") {
+      const face = selectFontFace(await loadMacTypefaces(), family, weight, italic);
+      return face ? { name: String(face.fullname || face.family || family).trim(), file: null } : null;
+    }
+    if (process.platform === "win32") {
+      const face = selectWindowsFontFace(await loadWindowsFonts(), family, weight, italic);
+      return face ? { name: face.fullname, file: face.file } : null;
+    }
+  } catch {
+    // Fall through to the raster renderer.
+  }
+  return null;
+}
+
+// Copies one font file into a private directory for the ASS filter's fontsdir.
+async function stageFontFile(fontFile, tempDir) {
+  const directory = path.join(tempDir, "face-font");
+  try {
+    await fs.mkdir(directory, { recursive: true });
+    await fs.copyFile(fontFile, path.join(directory, path.basename(fontFile)));
+    return directory;
   } catch {
     return null;
   }
@@ -159,7 +232,10 @@ async function listSystemFonts() {
 
 module.exports = {
   listSystemFonts,
+  parseWindowsFontRegistry,
   resolveFontFace,
+  selectWindowsFontFace,
+  stageFontFile,
   resolveUserFontDirectory,
   resolveUserFontFile,
   createStaticFontInstance,

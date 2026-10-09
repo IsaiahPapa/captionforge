@@ -8,6 +8,7 @@ const { ffmpegPath, ffprobePath } = require("./binaries.cjs");
 const {
   createStaticFontInstance,
   resolveFontFace,
+  stageFontFile,
   resolveUserFontDirectory,
   resolveUserFontFile
 } = require("./fonts.cjs");
@@ -445,7 +446,7 @@ async function renderVideo(project, outputPath, context, rawSettings = {}) {
   const assPath = path.join(tempDir, "captions.ass");
   try {
     context.onProgress({ stage: "export", value: 0.01, message: "Matching the export font…" });
-    const resolvedFontFace = await resolveFontFace(
+    let resolvedFontFace = await resolveFontFace(
       renderProject.style.fontFamily,
       renderProject.style.fontWeight,
       renderProject.style.fontStyle
@@ -457,6 +458,11 @@ async function renderVideo(project, outputPath, context, rawSettings = {}) {
     const staticFontDirectory = userFontFile
       ? await createStaticFontInstance(userFontFile, renderProject.style.fontWeight, tempDir, captionText)
       : null;
+    // On Windows the face comes with its file; libass gets it via fontsdir.
+    const faceFontDirectory = !staticFontDirectory && resolvedFontFace?.file
+      ? await stageFontFile(resolvedFontFace.file, tempDir)
+      : null;
+    if (resolvedFontFace?.file && !faceFontDirectory) resolvedFontFace = null;
     const assProject = staticFontDirectory
       ? {
           ...renderProject,
@@ -472,14 +478,14 @@ async function renderVideo(project, outputPath, context, rawSettings = {}) {
           ...renderProject,
           style: {
             ...renderProject.style,
-            fontFamily: resolvedFontFace,
+            fontFamily: resolvedFontFace.name,
             fontWeight: 0
           }
         }
       : renderProject;
     await fs.writeFile(assPath, buildAss(assProject), "utf8");
     const useAss = Boolean(staticFontDirectory || resolvedFontFace) && await supportsAssFilter();
-    const userFontDirectory = staticFontDirectory || (useAss ? await resolveUserFontDirectory() : null);
+    const userFontDirectory = staticFontDirectory || faceFontDirectory || (useAss ? await resolveUserFontDirectory() : null);
     const overlayTimeline = useAss ? null : await createRasterTimeline(renderProject, tempDir, context);
     const softwareEncoder = settings.codec === "hevc" ? "libx265" : "libx264";
     const preferredEncoder = await selectEncoder(settings.codec, settings.hardwareAcceleration);
