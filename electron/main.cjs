@@ -99,7 +99,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle("projects:list", () => library.list());
   ipcMain.handle("projects:create", (_event, project) => library.create(project));
-  ipcMain.handle("projects:save", (_event, id, project) => library.save(id, project));
+  ipcMain.handle("projects:save", (_event, id, project, filePath) => library.save(id, project, filePath));
   ipcMain.handle("projects:open", (_event, id) => library.open(id));
   ipcMain.handle("projects:import", (_event, project, filePath, modifiedAt) => library.importFile(project, filePath, modifiedAt));
   ipcMain.handle("projects:remove", (_event, id) => library.remove(id));
@@ -111,16 +111,23 @@ app.whenReady().then(() => {
   ipcMain.handle("state:load", (_event, legacyState) => stateStore.load(legacyState));
   ipcMain.handle("state:save", (_event, state) => stateStore.save(state));
 
-  ipcMain.handle("project:save", async (_event, project) => {
-    const suggestedName = `${path.parse(project.video.name).name}.captionforge.json`;
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: "Save CaptionForge project",
-      defaultPath: suggestedName,
-      filters: [{ name: "CaptionForge project", extensions: ["json"] }]
-    });
-    if (result.canceled || !result.filePath) return null;
-    await fs.writeFile(result.filePath, JSON.stringify(project, null, 2), "utf8");
-    return result.filePath;
+  // Saves to the project's existing file, or asks where (first save / Save As).
+  ipcMain.handle("project:save", async (_event, project, currentPath, saveAs) => {
+    let target = !saveAs && currentPath ? currentPath : null;
+    if (!target) {
+      const suggestedName = `${path.parse(project.video.name).name}.captionforge.json`;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: "Save CaptionForge project",
+        defaultPath: currentPath || suggestedName,
+        filters: [{ name: "CaptionForge project", extensions: ["json"] }]
+      });
+      if (result.canceled || !result.filePath) return null;
+      target = result.filePath;
+    }
+    const temporary = `${target}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, JSON.stringify(project, null, 2), "utf8");
+    await fs.rename(temporary, target);
+    return target;
   });
 
   ipcMain.handle("project:open", async () => {

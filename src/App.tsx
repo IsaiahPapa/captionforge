@@ -56,6 +56,9 @@ function missingVideoMessage(name: string, videoPath: string) {
   return `“${name}” can't be found at ${videoPath}. It may have been moved, renamed, or deleted. Use “Locate video” on the project to point to it.`;
 }
 
+const saveShortcut = navigator.platform.startsWith("Mac") ? "⌘S" : "Ctrl+S";
+const fileName = (filePath: string) => filePath.split(/[\\/]/).at(-1) ?? filePath;
+
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
@@ -251,6 +254,7 @@ function strictBatchCues(cues: CaptionCue[], batchSize: number): CaptionCue[] {
 function App() {
   const [project, setProject] = useState<CaptionProject | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectFilePath, setProjectFilePath] = useState<string | null>(null);
   const [recents, setRecents] = useState<ProjectSummary[] | null>(null);
   const [opening, setOpening] = useState(false);
   const persistedProjectRef = useRef<CaptionProject | null>(null);
@@ -338,6 +342,16 @@ function App() {
   useEffect(() => {
     document.title = project ? `${project.video.name} — CaptionForge` : "CaptionForge";
   }, [project?.video.name]);
+  useEffect(() => {
+    if (!project) return;
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "s" || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+      event.preventDefault();
+      saveProjectFile(event.shiftKey);
+    };
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  });
   useEffect(() => {
     if (presetSaveOpen) presetNameInputRef.current?.focus();
   }, [presetSaveOpen]);
@@ -445,9 +459,10 @@ function App() {
     }
   }
 
-  function enterProject(id: string, next: CaptionProject) {
+  function enterProject(id: string, next: CaptionProject, filePath: string | null) {
     persistedProjectRef.current = next;
     setProjectId(id);
+    setProjectFilePath(filePath);
     setProject(next);
     setCurrentTime(0);
     setPlaying(false);
@@ -475,7 +490,7 @@ function App() {
       const video = await window.captionForge.openVideo();
       if (!video) return;
       const created: CaptionProject = { version: 1, video, language: "auto", cues: [], style: { ...STYLE_PRESETS[0] } };
-      enterProject(await window.captionForge.createProject(created), created);
+      enterProject(await window.captionForge.createProject(created), created, null);
     });
   }
 
@@ -487,7 +502,7 @@ function App() {
       refreshRecents();
       throw new Error(missingVideoMessage(parsed.video.name, parsed.video.path));
     }
-    enterProject(opened.id, parsed);
+    enterProject(opened.id, parsed, opened.filePath);
   }
 
   function openRecentProject(id: string) {
@@ -530,6 +545,7 @@ function App() {
     if (project && projectId && persistedProjectRef.current !== project) await persistProject(projectId, project);
     setProject(null);
     setProjectId(null);
+    setProjectFilePath(null);
     persistedProjectRef.current = null;
     setExportOpen(false);
     refreshRecents();
@@ -587,13 +603,27 @@ function App() {
     setJob({ stage: "export", value: 0, message: "Preparing export…" });
     try {
       const output = await window.captionForge.exportVideo(project, exportSettings);
-      if (output) setToast(`Exported ${output.split("/").at(-1)}`);
+      if (output) setToast(`Exported ${fileName(output)}`);
     } catch (reason) {
       if (await leaveIfVideoMissing()) return;
       setError(errorMessage(reason));
     } finally {
       setJob(null);
       jobStartedAtRef.current = 0;
+    }
+  }
+
+  async function saveProjectFile(saveAs = false) {
+    if (!project || !projectId || job) return;
+    try {
+      const savedPath = await window.captionForge.saveProject(project, projectFilePath, saveAs);
+      if (!savedPath) return;
+      setProjectFilePath(savedPath);
+      persistedProjectRef.current = project;
+      await window.captionForge.saveLibraryProject(projectId, project, savedPath);
+      setToast(`Saved ${fileName(savedPath)}`);
+    } catch (reason) {
+      setError(`Could not save the project: ${errorMessage(reason)}`);
     }
   }
 
@@ -792,7 +822,12 @@ function App() {
           <span>{project.video.width}×{project.video.height} · {formatTime(project.video.duration)}</span>
         </div>
         <div className="top-actions">
-          <button className="ghost" onClick={() => window.captionForge.saveProject(project)}>Save project</button>
+          <button
+            className="ghost"
+            disabled={Boolean(job)}
+            title={projectFilePath ? `Save to ${projectFilePath} (${saveShortcut}). Shift-click to save a copy.` : `Save as a project file (${saveShortcut})`}
+            onClick={(event) => saveProjectFile(event.shiftKey)}
+          >Save project</button>
           <button className="primary" disabled={!project.cues.length || Boolean(job)} onClick={() => setExportOpen(true)}><ExportIcon /> Export video</button>
         </div>
       </header>

@@ -7,13 +7,13 @@ declare global {
       openProject(): Promise<{ data: unknown; filePath: string; modifiedAt: number } | null>;
       listProjects(): Promise<ProjectSummary[]>;
       createProject(project: CaptionProject): Promise<string>;
-      saveLibraryProject(id: string, project: CaptionProject): Promise<void>;
+      saveLibraryProject(id: string, project: CaptionProject, filePath?: string | null): Promise<void>;
       openLibraryProject(id: string): Promise<{ id: string; filePath: string | null; project: unknown; videoMissing: boolean }>;
       importProject(project: CaptionProject, filePath: string, modifiedAt: number): Promise<string>;
       removeProject(id: string): Promise<void>;
       relinkProject(id: string): Promise<{ summary: ProjectSummary; previousDuration: number } | null>;
       mediaExists(filePath: string): Promise<boolean>;
-      saveProject(project: CaptionProject): Promise<string | null>;
+      saveProject(project: CaptionProject, currentPath: string | null, saveAs: boolean): Promise<string | null>;
       createPreview?(filePath: string): Promise<string>;
       listFonts?(): Promise<string[]>;
       listModels(): Promise<WhisperModelStatus[]>;
