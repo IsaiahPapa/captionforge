@@ -36,3 +36,17 @@ test("an export that fails with every encoder rejects instead of reporting succe
     }
   }
 });
+
+test("measures videos whose container stores no duration", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "captionforge-probe-test-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const webm = path.join(tempDir, "streamed.webm");
+  // Writing to a pipe prevents the muxer from going back to record a duration.
+  const bytes = execFileSync(ffmpegPath, [
+    "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=2:r=25",
+    "-c:v", "libvpx", "-deadline", "realtime", "-f", "webm", "pipe:1"
+  ], { maxBuffer: 64 * 1024 * 1024 });
+  fs.writeFileSync(webm, bytes);
+  const video = await probeMedia(webm);
+  assert.ok(Math.abs(video.duration - 2) < 0.1, `expected ~2s, got ${video.duration}`);
+});

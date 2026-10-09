@@ -84,10 +84,28 @@ function displayDimensions(stream) {
     : { width, height };
 }
 
+// Files written by streaming muxers (e.g. browser-recorded WebM) may carry no
+// duration header. Fall back to the last video packet's end time.
+async function scanDuration(filePath) {
+  const { stdout } = await runProcess(ffprobePath, [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "packet=pts_time,duration_time",
+    "-of", "csv=p=0",
+    filePath
+  ]);
+  let end = 0;
+  for (const line of stdout.split(/\r?\n/)) {
+    const [pts, duration] = line.split(",").map(Number);
+    if (Number.isFinite(pts)) end = Math.max(end, pts + (Number.isFinite(duration) ? duration : 0));
+  }
+  return end;
+}
+
 async function probeMedia(filePath) {
   const { stdout } = await runProcess(ffprobePath, [
     "-v", "error",
-    "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate:stream_tags=rotate:stream_side_data_list",
+    "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate,duration:stream_tags=rotate:stream_side_data_list",
     "-of", "json",
     filePath
   ]);
@@ -95,11 +113,14 @@ async function probeMedia(filePath) {
   const videoStream = result.streams.find((stream) => stream.codec_type === "video");
   if (!videoStream) throw new Error("The selected file does not contain a video stream.");
   const [numerator, denominator] = String(videoStream.r_frame_rate || "0/1").split("/").map(Number);
+  let duration = [result.format.duration, videoStream.duration].map(Number).find((value) => Number.isFinite(value) && value > 0);
+  if (!duration) duration = await scanDuration(filePath);
+  if (!(duration > 0)) throw new Error("Could not determine the length of this video.");
   return {
     path: filePath,
     name: path.basename(filePath),
     ...displayDimensions(videoStream),
-    duration: Number(result.format.duration),
+    duration,
     fps: denominator ? numerator / denominator : 0,
     size: Number(result.format.size)
   };
