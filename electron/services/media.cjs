@@ -103,22 +103,28 @@ async function scanDuration(filePath) {
 }
 
 async function probeMedia(filePath) {
-  const { stdout } = await runProcess(ffprobePath, [
-    "-v", "error",
-    "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate,duration:stream_tags=rotate:stream_side_data_list",
-    "-of", "json",
-    filePath
-  ]);
+  const name = path.basename(filePath);
+  let stdout;
+  try {
+    ({ stdout } = await runProcess(ffprobePath, [
+      "-v", "error",
+      "-show_entries", "format=duration,size:stream=index,codec_type,width,height,r_frame_rate,duration:stream_tags=rotate:stream_side_data_list",
+      "-of", "json",
+      filePath
+    ]));
+  } catch {
+    throw new Error(`“${name}” couldn't be opened as a video. It may be damaged or in an unsupported format.`);
+  }
   const result = JSON.parse(stdout);
-  const videoStream = result.streams.find((stream) => stream.codec_type === "video");
-  if (!videoStream) throw new Error("The selected file does not contain a video stream.");
+  const videoStream = result.streams?.find((stream) => stream.codec_type === "video");
+  if (!videoStream) throw new Error(`“${name}” has no video track. Choose a video file.`);
   const [numerator, denominator] = String(videoStream.r_frame_rate || "0/1").split("/").map(Number);
   let duration = [result.format.duration, videoStream.duration].map(Number).find((value) => Number.isFinite(value) && value > 0);
   if (!duration) duration = await scanDuration(filePath);
   if (!(duration > 0)) throw new Error("Could not determine the length of this video.");
   return {
     path: filePath,
-    name: path.basename(filePath),
+    name,
     ...displayDimensions(videoStream),
     duration,
     fps: denominator ? numerator / denominator : 0,

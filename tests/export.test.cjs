@@ -50,3 +50,14 @@ test("measures videos whose container stores no duration", async (t) => {
   const video = await probeMedia(webm);
   assert.ok(Math.abs(video.duration - 2) < 0.1, `expected ~2s, got ${video.duration}`);
 });
+
+test("explains files that are not videos", async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "captionforge-probe-test-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const notes = path.join(tempDir, "notes.mp4");
+  fs.writeFileSync(notes, "definitely not a video");
+  await assert.rejects(probeMedia(notes), /“notes\.mp4” couldn't be opened as a video/);
+  const audio = path.join(tempDir, "voice.m4a");
+  execFileSync(ffmpegPath, ["-loglevel", "error", "-f", "lavfi", "-i", "sine=d=1", audio]);
+  await assert.rejects(probeMedia(audio), /“voice\.m4a” has no video track/);
+});

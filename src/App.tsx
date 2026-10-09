@@ -54,6 +54,13 @@ function loadLegacyState(): AppState {
   return { version: 1, project, userStylePresets, exportSettings };
 }
 
+// Electron prefixes errors thrown in the main process with
+// "Error invoking remote method '<channel>': Error: ".
+function errorMessage(reason: unknown) {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "");
+}
+
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
@@ -294,7 +301,7 @@ function App() {
       })
       .catch((reason) => {
         if (cancelled) return;
-        setError(`Could not load app settings: ${reason instanceof Error ? reason.message : String(reason)}`);
+        setError(`Could not load app settings: ${errorMessage(reason)}`);
         setStateReady(true);
       });
     return () => { cancelled = true; };
@@ -308,7 +315,7 @@ function App() {
         userStylePresets,
         exportSettings
       }).catch((reason) => {
-        setError(`Could not save app settings: ${reason instanceof Error ? reason.message : String(reason)}`);
+        setError(`Could not save app settings: ${errorMessage(reason)}`);
       });
     }, 150);
     return () => window.clearTimeout(timeout);
@@ -405,7 +412,13 @@ function App() {
 
   async function importVideo() {
     setError(null);
-    const video = await window.captionForge.openVideo();
+    let video;
+    try {
+      video = await window.captionForge.openVideo();
+    } catch (reason) {
+      setError(errorMessage(reason));
+      return;
+    }
     if (!video) return;
     setProject({
       version: 1,
@@ -431,7 +444,7 @@ function App() {
         setSelectedCueIds(new Set());
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     }
   }
 
@@ -461,7 +474,7 @@ function App() {
       setSelectedCueIds(new Set());
       setToast(`${result.cues.length} caption groups created`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setJob(null);
       jobStartedAtRef.current = 0;
@@ -479,7 +492,7 @@ function App() {
       const output = await window.captionForge.exportVideo(project, exportSettings);
       if (output) setToast(`Exported ${output.split("/").at(-1)}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setJob(null);
       jobStartedAtRef.current = 0;
@@ -630,7 +643,7 @@ function App() {
     } catch (reason) {
       previewStatusRef.current = "failed";
       setPreviewStatus("failed");
-      setError(`Preview conversion failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      setError(`Preview conversion failed: ${errorMessage(reason)}`);
     }
   }
 
